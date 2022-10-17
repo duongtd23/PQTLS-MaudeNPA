@@ -1,1 +1,1 @@
-# PQTLS-MaudeNPA
+The Maude-NPA specification of the Hybrid Post-quantum TLS protocol.

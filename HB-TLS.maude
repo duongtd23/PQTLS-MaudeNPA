@@ -12,27 +12,41 @@ fmod PROTOCOL-EXAMPLE-SYMBOLS is
   subsort Name < Public .
   subsort Point < ECKey .
 
+  --- ECDH
+  --- multiplication operation on scalars
   op _*_ : Scalar Scalar -> Scalar [frozen assoc comm] .
   --- a point generator
   op p : -> Point .
-  --- ECKey
+  --- takes a point and a (secret) scalar, and produces another point.
+  --- when 1st arg is p, the output is a public key (to send to other peer),
+  --- when 1st arg is a public key received from other, the output is a shared key
   op gen : Point Scalar -> Point [frozen] .
 
+  --- a server, a client, and the intruder
   ops s c i : -> Name .
-  op rd : Name Fresh -> Rand [frozen] .
-  op sk : Name Fresh -> Scalar [frozen] .
+  --- produce random numbers
+  op rd  : Name Fresh -> Rand [frozen] .
+  --- produce (secret) scalars
+  op scl : Name Fresh -> Scalar [frozen] .
+  --- produce unique session IDs
   op sess : Name Fresh -> Session [frozen] .
 
-  --- PQ KEM keys
+  --- PQ KEM
+  --- produce secret keys
   op pqSk : Name Fresh -> PqSk [frozen] .
+  --- produce associated public keys
   op pqPk : PqSk -> PqPk [frozen] .
+  --- constructor of shared keys
   op $pqKey : PqSk PqSk -> PqKey [frozen] .
+  --- Encaps procedure, returns the ciphertext c and the key k
   op encapCipher : PqPk PqSk -> Cipher [frozen] .
   op encapKey : PqPk PqSk -> PqKey [frozen] .
+  --- Decaps procedure
   op decap : Cipher PqSk -> PqKey [frozen] .
 
-  --- PreMasterSecret & MasterSecret
+  --- PreMasterSecret
   op pms : ECKey PqKey -> PreMasterSecret [frozen] .
+  --- MasterSecret
   op ms : PreMasterSecret Rand Rand Point Cipher -> MasterSecret [frozen] .
   --- certificate & Signature
   op cert : Name -> Cert [frozen] .
@@ -40,52 +54,42 @@ fmod PROTOCOL-EXAMPLE-SYMBOLS is
 
   --- encryption
   op enc : MasterSecret Msg -> Msg [frozen] .
+  --- decryption
   op dec : MasterSecret Msg -> Msg [frozen] .
 
-  --- conncatenation
+  --- conncatenation of messages
   op _;_ : Msg  Msg  -> Msg [gather (e E) frozen] .
 
-  --- messages
-  op ch    : -> Msg . --- c hello
-  op sh    : -> Msg . --- s hello
-  op sc    : -> Msg . --- s certificate
-  op ske   : -> Msg . --- s key exchange
-  op cke   : -> Msg . --- c key exchange
-  op cf    : -> Msg . --- c finished
-  op sf    : -> Msg . --- s finished
-
+  --- acronyms of ClientHello, ServerHello, Server Certificate, ServerKeyExchange,
+  ---  ClientKeyExchange, ClientFinished, and ServerFinished messages
+  op ch    : -> Msg .      --- client hello
+  op sh    : -> Msg .      --- server hello
+  op sc    : -> Msg .      --- server certificate
+  op ske   : -> Msg .      --- server key exchange
+  op cke   : -> Msg .      --- client key exchange
+  op cf    : -> Msg .      --- client finished
+  op sf    : -> Msg .      --- server finished
 endfm
 
 fmod PROTOCOL-EXAMPLE-ALGEBRAIC is
   protecting PROTOCOL-EXAMPLE-SYMBOLS .
 
-  ----------------------------------------------------------
-  --- Overwrite this module with the algebraic properties
-  --- of your protocol
-  ----------------------------------------------------------
-
-  --- classical key
+  --- ECDH algebraic property
   eq gen(gen(P:Point, K1:Scalar), K2:Scalar)
-  = gen(P:Point, K1:Scalar * K2:Scalar) [variant] .
+    = gen(P:Point, K1:Scalar * K2:Scalar) [variant] .
 
-  --- post-quantum key
+  --- PQ KEM algebraic property
   eq encapKey(pqPk(SK:PqSk), SK2:PqSk) = $pqKey(SK:PqSk, SK2:PqSk) [variant] .
   eq decap(encapCipher(pqPk(SK:PqSk), SK2:PqSk), SK:PqSk) = $pqKey(SK:PqSk, SK2:PqSk) [variant] .
 
   --- cancellation of encrytion/decryption
   eq dec(K:MasterSecret,enc(K:MasterSecret,M:Msg)) = M:Msg [variant] .
-
 endfm
 
 fmod PROTOCOL-SPECIFICATION is
   protecting PROTOCOL-EXAMPLE-SYMBOLS .
   protecting DEFINITION-PROTOCOL-RULES .
   protecting DEFINITION-CONSTRAINTS-INPUT .
-
-  ----------------------------------------------------------
-  --- Overwrite this module with the strands
-  --- of your protocol
-  ----------------------------------------------------------
 
   vars N N' N1 N2 : Rand .
   vars A C S : Name .
@@ -99,6 +103,7 @@ fmod PROTOCOL-SPECIFICATION is
   vars SK : PqSk .
   vars K1 K2 : Scalar .
 
+  --- the intruder capabilities
   eq STRANDS-DOLEVYAO
   = :: nil :: [ nil | -(M1 ; M2), +(M1), nil ] &
     :: nil :: [ nil | -(M1 ; M2), +(M2), nil ] &
@@ -111,7 +116,7 @@ fmod PROTOCOL-SPECIFICATION is
     :: nil :: [ nil | -(CP), -(SK), +(decap(CP,SK)), nil ] &
     :: nil :: [ nil | -(M), +(sig(i,M)), nil ] &
     :: r :: [ nil | +(rd(i,r)), nil ] &
-    :: r :: [ nil | +(sk(i,r)), nil ] &
+    :: r :: [ nil | +(scl(i,r)), nil ] &
     :: nil :: [ nil | +(ch), nil ] &
     :: nil :: [ nil | +(sh), nil ] &
     :: nil :: [ nil | +(sc), nil ] &
@@ -127,6 +132,7 @@ fmod PROTOCOL-SPECIFICATION is
   eq (X1:Msg ; X2:Msg) ++ Y:Msg = X1:Msg ; (X2:Msg ++ Y:Msg) .
   eq X:Msg ++ Y:Msg = X:Msg ; Y:Msg [owise] .
 
+  --- the protocol execution, the client side followed by the server side
   eq STRANDS-PROTOCOL
   = :: r1,r2,r3 ::
     [ nil |
@@ -134,44 +140,44 @@ fmod PROTOCOL-SPECIFICATION is
       -(sh ; N ; SS),
       -(sc ; cert(S)),
       -(ske ; PK1 ; PK2 ; sig(S, PK1 ; PK2 ; rd(C,r1) ; N)),
-      +(cke ; gen(p,sk(C,r2)) ; encapCipher(PK2, pqSk(C,r3))),
+      +(cke ; gen(p,scl(C,r2)) ; encapCipher(PK2, pqSk(C,r3))),
       +(cf ; enc(ms(
-          pms(gen(PK1,sk(C,r2)), encapKey(PK2, pqSk(C,r3))),
+          pms(gen(PK1,scl(C,r2)), encapKey(PK2, pqSk(C,r3))),
           rd(C,r1),
           N,
-          gen(p,sk(C,r2)),
+          gen(p,scl(C,r2)),
           encapCipher(PK2, pqSk(C,r3))
         ),
         (ch ; rd(C,r1)) ++
         (sh ; N ; SS) ++
         (sc ; cert(S)) ++
         (ske ; PK1 ; PK2 ; sig(S, PK1 ; PK2 ; rd(C,r1) ; N)) ++
-        (cke ; gen(p,sk(C,r2)) ; encapCipher(PK2, pqSk(C,r3)))
+        (cke ; gen(p,scl(C,r2)) ; encapCipher(PK2, pqSk(C,r3)))
         )),
       -(sf ; enc(ms(
-          pms(gen(PK1,sk(C,r2)), encapKey(PK2, pqSk(C,r3))),
+          pms(gen(PK1,scl(C,r2)), encapKey(PK2, pqSk(C,r3))),
           rd(C,r1),
           N,
-          gen(p,sk(C,r2)),
+          gen(p,scl(C,r2)),
           encapCipher(PK2, pqSk(C,r3))
         ),
         (ch ; rd(C,r1)) ++
         (sh ; N ; SS) ++
         (sc ; cert(S)) ++
         (ske ; PK1 ; PK2 ; sig(S, PK1 ; PK2 ; rd(C,r1) ; N)) ++
-        (cke ; gen(p,sk(C,r2)) ; encapCipher(PK2, pqSk(C,r3))) ++
+        (cke ; gen(p,scl(C,r2)) ; encapCipher(PK2, pqSk(C,r3))) ++
         (cf ; enc(ms(
-          pms(gen(PK1,sk(C,r2)), encapKey(PK2, pqSk(C,r3))),
+          pms(gen(PK1,scl(C,r2)), encapKey(PK2, pqSk(C,r3))),
           rd(C,r1),
           N,
-          gen(p,sk(C,r2)),
+          gen(p,scl(C,r2)),
           encapCipher(PK2, pqSk(C,r3))
         ),
         (ch ; rd(C,r1)) ++
         (sh ; N ; SS) ++
         (sc ; cert(S)) ++
         (ske ; PK1 ; PK2 ; sig(S, PK1 ; PK2 ; rd(C,r1) ; N)) ++
-        (cke ; gen(p,sk(C,r2)) ; encapCipher(PK2, pqSk(C,r3)))))
+        (cke ; gen(p,scl(C,r2)) ; encapCipher(PK2, pqSk(C,r3)))))
         )), nil ] &
 
     :: r1,r2,r3,r4 ::
@@ -179,11 +185,11 @@ fmod PROTOCOL-SPECIFICATION is
       -(ch ; N),
       +(sh ; rd(S,r1) ; sess(S,r2)),
       +(sc ; cert(S)),
-      +(ske ; gen(p,sk(S,r3)) ; pqPk(pqSk(S,r4)) ;
-        sig(S, gen(p,sk(S,r3)) ; pqPk(pqSk(S,r4)) ; N ; rd(S,r1))),
+      +(ske ; gen(p,scl(S,r3)) ; pqPk(pqSk(S,r4)) ;
+        sig(S, gen(p,scl(S,r3)) ; pqPk(pqSk(S,r4)) ; N ; rd(S,r1))),
       -(cke ; PK1 ; CP),
       -(cf ; enc(ms(
-          pms(gen(PK1,sk(S,r3)), decap(CP, pqSk(S,r4))),
+          pms(gen(PK1,scl(S,r3)), decap(CP, pqSk(S,r4))),
           N,
           rd(S,r1),
           PK1,
@@ -192,12 +198,12 @@ fmod PROTOCOL-SPECIFICATION is
         (ch ; N) ++
         (sh ; rd(S,r1) ; sess(S,r2)) ++
         (sc ; cert(S)) ++
-        (ske ; gen(p,sk(S,r3)) ; pqPk(pqSk(S,r4)) ;
-          sig(S, gen(p,sk(S,r3)) ; pqPk(pqSk(S,r4)) ; N ; rd(S,r1))) ++
+        (ske ; gen(p,scl(S,r3)) ; pqPk(pqSk(S,r4)) ;
+          sig(S, gen(p,scl(S,r3)) ; pqPk(pqSk(S,r4)) ; N ; rd(S,r1))) ++
         (cke ; PK1 ; CP)
         )),
       +(sf ; enc(ms(
-          pms(gen(PK1,sk(S,r3)), decap(CP, pqSk(S,r4))),
+          pms(gen(PK1,scl(S,r3)), decap(CP, pqSk(S,r4))),
           N,
           rd(S,r1),
           PK1,
@@ -206,11 +212,11 @@ fmod PROTOCOL-SPECIFICATION is
         (ch ; N) ++
         (sh ; rd(S,r1) ; sess(S,r2)) ++
         (sc ; cert(S)) ++
-        (ske ; gen(p,sk(S,r3)) ; pqPk(pqSk(S,r4)) ;
-          sig(S, gen(p,sk(S,r3)) ; pqPk(pqSk(S,r4)) ; N ; rd(S,r1))) ++
+        (ske ; gen(p,scl(S,r3)) ; pqPk(pqSk(S,r4)) ;
+          sig(S, gen(p,scl(S,r3)) ; pqPk(pqSk(S,r4)) ; N ; rd(S,r1))) ++
         (cke ; PK1 ; CP) ++
         (cf ; enc(ms(
-          pms(gen(PK1,sk(S,r3)), decap(CP, pqSk(S,r4))),
+          pms(gen(PK1,scl(S,r3)), decap(CP, pqSk(S,r4))),
           N,
           rd(S,r1),
           PK1,
@@ -219,13 +225,221 @@ fmod PROTOCOL-SPECIFICATION is
         (ch ; N) ++
         (sh ; rd(S,r1) ; sess(S,r2)) ++
         (sc ; cert(S)) ++
-        (ske ; gen(p,sk(S,r3)) ; pqPk(pqSk(S,r4)) ;
-          sig(S, gen(p,sk(S,r3)) ; pqPk(pqSk(S,r4)) ; N ; rd(S,r1))) ++
+        (ske ; gen(p,scl(S,r3)) ; pqPk(pqSk(S,r4)) ;
+          sig(S, gen(p,scl(S,r3)) ; pqPk(pqSk(S,r4)) ; N ; rd(S,r1))) ++
         (cke ; PK1 ; CP)))
         )), nil ]
     [nonexec] .
 
---- testing the specification execution
+--- intruder can learn the ECDH shared secret key
+  eq ATTACK-STATE(0)
+  = :: r1,r2,r3 ::
+    [ nil,
+      +(ch ; rd(c,r1)),
+      -(sh ; N ; SS),
+      -(sc ; cert(s)),
+      -(ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)),
+      +(cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3))),
+      +(cf ; enc(ms(
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          rd(c,r1),
+          N,
+          gen(p,scl(c,r2)),
+          encapCipher(PK2, pqSk(c,r3))
+        ),
+        (ch ; rd(c,r1)) ++
+        (sh ; N ; SS) ++
+        (sc ; cert(s)) ++
+        (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3)))
+        )),
+      -(sf ; enc(ms(
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          rd(c,r1),
+          N,
+          gen(p,scl(c,r2)),
+          encapCipher(PK2, pqSk(c,r3))
+        ),
+        (ch ; rd(c,r1)) ++
+        (sh ; N ; SS) ++
+        (sc ; cert(s)) ++
+        (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3))) ++
+        (cf ; enc(ms(
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          rd(c,r1),
+          N,
+          gen(p,scl(c,r2)),
+          encapCipher(PK2, pqSk(c,r3))
+        ),
+        (ch ; rd(c,r1)) ++
+        (sh ; N ; SS) ++
+        (sc ; cert(s)) ++
+        (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3)))))
+        )) | nil ]
+    || gen(PK1,scl(c,r2)) inI, empty
+    || nil
+    || nil
+    || nil
+    [nonexec] .
+
+--- secrecy property
+  eq ATTACK-STATE(1)
+  = :: r1,r2,r3 ::
+    [ nil,
+      +(ch ; rd(c,r1)),
+      -(sh ; N ; SS),
+      -(sc ; cert(s)),
+      -(ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)),
+      +(cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3))),
+      +(cf ; enc(ms(
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          rd(c,r1),
+          N,
+          gen(p,scl(c,r2)),
+          encapCipher(PK2, pqSk(c,r3))
+        ),
+        (ch ; rd(c,r1)) ++
+        (sh ; N ; SS) ++
+        (sc ; cert(s)) ++
+        (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3)))
+        )),
+      -(sf ; enc(ms(
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          rd(c,r1),
+          N,
+          gen(p,scl(c,r2)),
+          encapCipher(PK2, pqSk(c,r3))
+        ),
+        (ch ; rd(c,r1)) ++
+        (sh ; N ; SS) ++
+        (sc ; cert(s)) ++
+        (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3))) ++
+        (cf ; enc(ms(
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          rd(c,r1),
+          N,
+          gen(p,scl(c,r2)),
+          encapCipher(PK2, pqSk(c,r3))
+        ),
+        (ch ; rd(c,r1)) ++
+        (sh ; N ; SS) ++
+        (sc ; cert(s)) ++
+        (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3)))))
+        )) | nil ]
+    || encapKey(PK2, pqSk(c,r3)) inI, empty
+    || nil
+    || nil
+    || nil
+    [nonexec] .
+
+--- authentication property
+  eq ATTACK-STATE(2)
+  = :: r1,r2,r3 ::
+    [ nil,
+      +(ch ; rd(c,r1)),
+      -(sh ; N ; SS),
+      -(sc ; cert(s)),
+      -(ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)),
+      +(cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3))),
+      +(cf ; enc(ms(
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          rd(c,r1),
+          N,
+          gen(p,scl(c,r2)),
+          encapCipher(PK2, pqSk(c,r3))
+        ),
+        (ch ; rd(c,r1)) ++
+        (sh ; N ; SS) ++
+        (sc ; cert(s)) ++
+        (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3)))
+        )),
+      -(sf ; enc(ms(
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          rd(c,r1),
+          N,
+          gen(p,scl(c,r2)),
+          encapCipher(PK2, pqSk(c,r3))
+        ),
+        (ch ; rd(c,r1)) ++
+        (sh ; N ; SS) ++
+        (sc ; cert(s)) ++
+        (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3))) ++
+        (cf ; enc(ms(
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          rd(c,r1),
+          N,
+          gen(p,scl(c,r2)),
+          encapCipher(PK2, pqSk(c,r3))
+        ),
+        (ch ; rd(c,r1)) ++
+        (sh ; N ; SS) ++
+        (sc ; cert(s)) ++
+        (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3)))))
+        )) | nil ]
+    || empty
+    || nil
+    || nil
+    || never(
+    :: r',r1',r2',r3' ::
+    [ nil |
+      -(ch ; rd(c,r1)),
+      +(sh ; N ; SS),
+      +(sc ; cert(s)),
+      +(ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)),
+      -(cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3))),
+      -(cf ; enc(ms(
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          rd(c,r1),
+          N,
+          gen(p,scl(c,r2)),
+          encapCipher(PK2, pqSk(c,r3))
+        ),
+        (ch ; rd(c,r1)) ++
+        (sh ; N ; SS) ++
+        (sc ; cert(s)) ++
+        (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3)))
+        )),
+      +(sf ; enc(ms(
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          rd(c,r1),
+          N,
+          gen(p,scl(c,r2)),
+          encapCipher(PK2, pqSk(c,r3))
+        ),
+        (ch ; rd(c,r1)) ++
+        (sh ; N ; SS) ++
+        (sc ; cert(s)) ++
+        (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3))) ++
+        (cf ; enc(ms(
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          rd(c,r1),
+          N,
+          gen(p,scl(c,r2)),
+          encapCipher(PK2, pqSk(c,r3))
+        ),
+        (ch ; rd(c,r1)) ++
+        (sh ; N ; SS) ++
+        (sc ; cert(s)) ++
+        (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3)))))
+        )),
+      nil ]
+      & STR:StrandSet
+      || IK:IntruderKnowledge
+     )
+    [nonexec] .
+
+  --- testing the specification execution
   eq ATTACK-STATE(10)
   = :: r1,r2,r3 ::
     [ nil,
@@ -233,44 +447,44 @@ fmod PROTOCOL-SPECIFICATION is
       -(sh ; N ; SS),
       -(sc ; cert(s)),
       -(ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)),
-      +(cke ; gen(p,sk(c,r2)) ; encapCipher(PK2, pqSk(c,r3))),
+      +(cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3))),
       +(cf ; enc(ms(
-          pms(gen(PK1,sk(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
           rd(c,r1),
           N,
-          gen(p,sk(c,r2)),
+          gen(p,scl(c,r2)),
           encapCipher(PK2, pqSk(c,r3))
         ),
         (ch ; rd(c,r1)) ++
         (sh ; N ; SS) ++
         (sc ; cert(s)) ++
         (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
-        (cke ; gen(p,sk(c,r2)) ; encapCipher(PK2, pqSk(c,r3)))
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3)))
         )),
       -(sf ; enc(ms(
-          pms(gen(PK1,sk(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
           rd(c,r1),
           N,
-          gen(p,sk(c,r2)),
+          gen(p,scl(c,r2)),
           encapCipher(PK2, pqSk(c,r3))
         ),
         (ch ; rd(c,r1)) ++
         (sh ; N ; SS) ++
         (sc ; cert(s)) ++
         (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
-        (cke ; gen(p,sk(c,r2)) ; encapCipher(PK2, pqSk(c,r3))) ++
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3))) ++
         (cf ; enc(ms(
-          pms(gen(PK1,sk(c,r2)), encapKey(PK2, pqSk(c,r3))),
+          pms(gen(PK1,scl(c,r2)), encapKey(PK2, pqSk(c,r3))),
           rd(c,r1),
           N,
-          gen(p,sk(c,r2)),
+          gen(p,scl(c,r2)),
           encapCipher(PK2, pqSk(c,r3))
         ),
         (ch ; rd(c,r1)) ++
         (sh ; N ; SS) ++
         (sc ; cert(s)) ++
         (ske ; PK1 ; PK2 ; sig(s, PK1 ; PK2 ; rd(c,r1) ; N)) ++
-        (cke ; gen(p,sk(c,r2)) ; encapCipher(PK2, pqSk(c,r3)))))
+        (cke ; gen(p,scl(c,r2)) ; encapCipher(PK2, pqSk(c,r3)))))
         )) | nil ]
     || empty
     || nil
@@ -279,5 +493,4 @@ fmod PROTOCOL-SPECIFICATION is
     [nonexec] .
 endfm
 
---- THIS HAS TO BE THE LAST LOADED MODULE !!!!
 select MAUDE-NPA .

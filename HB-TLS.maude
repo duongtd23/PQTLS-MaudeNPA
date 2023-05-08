@@ -231,7 +231,9 @@ fmod PROTOCOL-SPECIFICATION is
         )), nil ]
     [nonexec] .
 
---- intruder can learn the ECDH shared secret key
+--- Secrecy property of ECDH shared secret key
+--- The attack pattern states that when a client and a server complete a handshake, 
+--- the intruder can learn the ECDH shared secret key 
   eq ATTACK-STATE(0)
   = :: r1,r2,r3 ::
     [ nil,
@@ -284,7 +286,9 @@ fmod PROTOCOL-SPECIFICATION is
     || nil
     [nonexec] .
 
---- secrecy property
+--- Secrecy property of PQ KEM shared secret key
+--- The attack pattern states that when a client and a server complete a handshake, 
+--- the intruder can learn the KEM shared secret key 
   eq ATTACK-STATE(1)
   = :: r1,r2,r3 ::
     [ nil,
@@ -337,7 +341,12 @@ fmod PROTOCOL-SPECIFICATION is
     || nil
     [nonexec] .
 
---- authentication property
+--- Authentication property
+--- The attack pattern states that client c has completed the handshake, 
+--- apparently with server s, by sending a ClientFinished message to s and
+--- c receives back another valid ServerFinished message, 
+--- but s has actually not executed such a server instance with c 
+--- (denoted by the never pattern in the last section).
   eq ATTACK-STATE(2)
   = :: r1,r2,r3 ::
     [ nil,
